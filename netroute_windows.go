@@ -2,6 +2,8 @@
 
 package netroute
 
+// Implementation Warning: mapping of the correct interface ID and index is not
+// hooked up.
 // Reference:
 // https://docs.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getbestroute2
 import (
@@ -54,7 +56,7 @@ type mib_row2 struct {
 func callBestRoute(source, dest net.IP) (*mib_row2, net.IP, error) {
 	sourceAddr, _, _ := sockaddrconv.SockaddrToAny(sockaddrnet.IPAndZoneToSockaddr(source, ""))
 	destAddr, _, _ := sockaddrconv.SockaddrToAny(sockaddrnet.IPAndZoneToSockaddr(dest, ""))
-	bestRoute := make([]byte, 64)
+	bestRoute := make([]byte, 512)
 	bestSource := make([]byte, 116)
 
 	err := getBestRoute2(nil, 0, sourceAddr, destAddr, 0, bestRoute, bestSource)
@@ -136,7 +138,7 @@ func readDestPrefix(buffer []byte, idx int) (*AddressPrefix, int, error) {
 func readSockAddr(buffer []byte, idx int) (*windows.RawSockaddrAny, int, error) {
 	var rsa windows.RawSockaddrAny
 	rsa.Addr.Family = binary.LittleEndian.Uint16(buffer[idx : idx+2])
-	if rsa.Addr.Family == 2 /* AF_INET */ {
+	if rsa.Addr.Family == 2 /* AF_INET */ || rsa.Addr.Family == 0 /* AF_UNDEF */ {
 		copyInto(rsa.Addr.Data[:], buffer[idx+2:idx+16])
 		return &rsa, idx + 16, nil
 	} else if rsa.Addr.Family == 23 /* AF_INET6 */ {
@@ -173,6 +175,10 @@ func (r *winRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface
 	route, pref, err := callBestRoute(src, dst)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if route.nextHop.Addr.Family == 0 /* AF_UNDEF */ {
+		route.nextHop.Addr.Family = 2
+		return nil, nil, pref, nil
 	}
 	addr, err := route.nextHop.Sockaddr()
 	if err != nil {

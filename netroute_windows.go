@@ -12,6 +12,7 @@ import (
 	"unsafe"
 
 	"github.com/google/gopacket/routing"
+	sockaddrconv "github.com/libp2p/go-sockaddr"
 	sockaddrnet "github.com/libp2p/go-sockaddr/net"
 	"golang.org/x/sys/windows"
 )
@@ -51,12 +52,12 @@ type mib_row2 struct {
 }
 
 func callBestRoute(source, dest net.IP) (*mib_row2, net.IP, error) {
-	sourceAddr := sockaddrnet.IPAndZoneToSockaddr(source, "")
-	destAddr := sockaddrnet.IPAndZoneToSockaddr(dest, "")
+	sourceAddr, _, _ := sockaddrconv.SockaddrToAny(sockaddrnet.IPAndZoneToSockaddr(source, ""))
+	destAddr, _, _ := sockaddrconv.SockaddrToAny(sockaddrnet.IPAndZoneToSockaddr(dest, ""))
 	bestRoute := make([]byte, 64)
 	bestSource := make([]byte, 116)
 
-	err := getBestRoute2(nil, 0, source, dest, 0, bestRoute, bestSource)
+	err := getBestRoute2(nil, 0, sourceAddr, destAddr, 0, bestRoute, bestSource)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -146,12 +147,12 @@ func readSockAddr(buffer []byte, idx int) (*windows.RawSockaddrAny, int, error) 
 	}
 }
 
-func getBestRoute2(interfaceLuid *NetLUID, interfaceIndex uint32, sourceAddress, destinationAddress []byte, addressSortOptions uint32, bestRoute []byte, bestSourceAddress []byte) (errcode error) {
+func getBestRoute2(interfaceLuid *NetLUID, interfaceIndex uint32, sourceAddress, destinationAddress *windows.RawSockaddrAny, addressSortOptions uint32, bestRoute []byte, bestSourceAddress []byte) (errcode error) {
 	r0, _, _ := syscall.Syscall9(procGetBestRoute2.Addr(), 7,
 		uintptr(unsafe.Pointer(interfaceLuid)),
 		uintptr(interfaceIndex),
-		uintptr(unsafe.Pointer(&sourceAddress[0])),
-		uintptr(unsafe.Pointer(&destinationAddress[0])),
+		uintptr(unsafe.Pointer(sourceAddress)),
+		uintptr(unsafe.Pointer(destinationAddress)),
 		uintptr(addressSortOptions),
 		uintptr(unsafe.Pointer(&bestRoute[0])),
 		uintptr(unsafe.Pointer(&bestSourceAddress[0])),

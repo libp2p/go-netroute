@@ -25,7 +25,7 @@ var (
 type NetLUID uint64
 
 type AddressPrefix struct {
-	windows.Sockaddr
+	*windows.RawSockaddrAny
 	PrefixLength byte
 }
 
@@ -35,11 +35,11 @@ type RouteProtocol uint32 // MIB_IPFORWARD_PROTO
 type mib_row2 struct {
 	luid              NetLUID
 	index             uint32
-	destinationPrefix AddressPrefix
-	nextHop           windows.Sockaddr
+	destinationPrefix *AddressPrefix
+	nextHop           *windows.RawSockaddrAny
 	prefixLength      byte
 	lifetime          uint32
-	preferredLIfetime uint32
+	preferredLifetime uint32
 	metric            uint32
 	protocol          RouteProtocol
 	loopback          byte
@@ -54,7 +54,7 @@ func callBestRoute(source, dest net.IP) (*mib_row2, net.IP, error) {
 	sourceAddr := sockaddrnet.IPAndZoneToSockaddr(source, "")
 	destAddr := sockaddrnet.IPAndZoneToSockaddr(dest, "")
 	bestRoute := make([]byte, 64)
-	var bestSource windows.RawSockaddrAny
+	bestSource := make([]byte, 116)
 
 	err := getBestRoute2(nil, 0, source, dest, 0, bestRoute, bestSource)
 	if err != nil {
@@ -66,28 +66,56 @@ func callBestRoute(source, dest net.IP) (*mib_row2, net.IP, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	bestSrc, _ := sockaddrnet.SockaddrToIPAndZone(bestSource.Sockaddr())
 
-	return &route, bestSrc, nil
+	var bestSourceRaw windows.RawSockaddrAny
+	bestSourceRaw.Addr.Family = binary.LittleEndian.Uint16(bestSource[0:2])
+	copyInto(bestSourceRaw.Addr.Data[:], bestSource[2:16])
+	copyInto(bestSourceRaw.Pad[:], bestSource[16:])
+	addr, _ := bestSourceRaw.Sockaddr()
+	bestSrc, _ := sockaddrnet.SockaddrToIPAndZone(addr)
+
+	return route, bestSrc, nil
+}
+
+func copyInto(dst []int8, src []byte) {
+	for i, b := range src {
+		dst[i] = int8(b)
+	}
 }
 
 func parseRoute(mib []byte) (*mib_row2, error) {
 	var route mib_row2
 	var err error
 
-	route.luid = binary.LittleEndian.Uint64(mib[0:])
+	route.luid = NetLUID(binary.LittleEndian.Uint64(mib[0:]))
 	route.index = binary.LittleEndian.Uint32(mib[8:])
-	pfix, idx, err := readDestPrefix(mib, 12)
+	idx := 0
+	route.destinationPrefix, idx, err = readDestPrefix(mib, 12)
 	if err != nil {
 		return nil, err
 	}
-	route.destinationPrefix = pfix
 	route.nextHop, idx, err = readSockAddr(mib, idx)
 	if err != nil {
 		return nil, err
 	}
+	route.prefixLength = mib[idx++]
+	route.lifetime = binary.LittleEndian.Uint32(mib[idx:idx+4])
+	idx += 4
+	route.preferredLifetime = binary.LittleEndian.Uint32(mib[idx:idx+4])
+	idx += 4
+	route.metric = binary.LittleEndian.Uint32(mib[idx:idx+4])
+	idx += 4
+	route.protocol = RouteProtocol(binary.LittleEndian.Uint32(mib[idx:idx+4]))
+	idx += 4
+	route.loopback = mib[idx++]
+	route.autoconfigured = mib[idx++]
+	route.publish = mib[idx++]
+	route.immortal = mib[idx++]
+	route.age = binary.LittleEndian.Uint32(mib[idx:idx+4])
+	idx += 4
+	route.origin = mib[idx]
 
-	return route, err
+	return &route, err
 }
 
 func readDestPrefix(buffer []byte, idx int) (*AddressPrefix, int, error) {
@@ -99,12 +127,14 @@ func readDestPrefix(buffer []byte, idx int) (*AddressPrefix, int, error) {
 	return &AddressPrefix{sock, pfixLen}, idx + 1, nil
 }
 
-func readSockAddr(buffer []byte, idx int) (*windows.Sockaddr, int, error) {
-	family := binary.LittleEndian.Uint16(buffer[idx:])
-	if family == AF_INET {
-		//14 bytes?
-	} else if family == AF_INET6 {
-		//24 bytes?
+func readSockAddr(buffer []byte, idx int) (*windows.RawSockaddrAny, int, error) {
+	var rsa window.RawSockaddrAny
+	rsa.Addr.Family = binary.LittleEndian.Uint16(buffer[idx : idx+2])
+	if rsa.Addr.Family == 4 {
+		copyInto(rsa.Addr.Data[:], buffer[idx+2:idx+16])
+		return &rsa, idx + 16, nil
+	} else if family == 6 {
+		//TODO: 24 bytes?
 	} else {
 		return nil, 0, fmt.Errorf("Unknown windows addr family %d", family)
 	}
@@ -129,15 +159,21 @@ func getBestRoute2(interfaceLuid *NetLUID, interfaceIndex uint32, sourceAddress,
 type winRouter struct{}
 
 func (r *winRouter) Route(dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
-	return RouteWithSource(nil, nil, dst)
+	return RouteWithSrc(nil, nil, dst)
 }
 
 func (r *winRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
 	route, pref, err := callBestRoute(src, dst)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return route, pref, nil
+	addr, err := route.nextHop.Sockaddr()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	nextHop, _ := sockaddrnet.SockaddrToIPAndZone(addr)
+
+	return nil, nextHop, pref, nil
 }
 
 func New() (routing.Router, error) {

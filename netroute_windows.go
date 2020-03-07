@@ -44,7 +44,7 @@ type mib_row2 struct {
 	protocol          RouteProtocol
 	loopback          byte
 	autoconfigured    byte
-	publich           byte
+	publish           byte
 	immortal          byte
 	age               uint32
 	origin            byte
@@ -133,15 +133,16 @@ func readDestPrefix(buffer []byte, idx int) (*AddressPrefix, int, error) {
 }
 
 func readSockAddr(buffer []byte, idx int) (*windows.RawSockaddrAny, int, error) {
-	var rsa window.RawSockaddrAny
+	var rsa windows.RawSockaddrAny
 	rsa.Addr.Family = binary.LittleEndian.Uint16(buffer[idx : idx+2])
 	if rsa.Addr.Family == 4 {
 		copyInto(rsa.Addr.Data[:], buffer[idx+2:idx+16])
 		return &rsa, idx + 16, nil
-	} else if family == 6 {
+	} else if rsa.Addr.Family == 6 {
 		//TODO: 24 bytes?
+		panic("no v6 len")
 	} else {
-		return nil, 0, fmt.Errorf("Unknown windows addr family %d", family)
+		return nil, 0, fmt.Errorf("Unknown windows addr family %d", rsa.Addr.Family)
 	}
 }
 
@@ -164,7 +165,7 @@ func getBestRoute2(interfaceLuid *NetLUID, interfaceIndex uint32, sourceAddress,
 type winRouter struct{}
 
 func (r *winRouter) Route(dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
-	return RouteWithSrc(nil, nil, dst)
+	return r.RouteWithSrc(nil, nil, dst)
 }
 
 func (r *winRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {

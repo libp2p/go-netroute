@@ -98,20 +98,25 @@ func parseRoute(mib []byte) (*mib_row2, error) {
 	if err != nil {
 		return nil, err
 	}
-	route.prefixLength = mib[idx++]
-	route.lifetime = binary.LittleEndian.Uint32(mib[idx:idx+4])
+	route.prefixLength = mib[idx]
+	idx += 1
+	route.lifetime = binary.LittleEndian.Uint32(mib[idx : idx+4])
 	idx += 4
-	route.preferredLifetime = binary.LittleEndian.Uint32(mib[idx:idx+4])
+	route.preferredLifetime = binary.LittleEndian.Uint32(mib[idx : idx+4])
 	idx += 4
-	route.metric = binary.LittleEndian.Uint32(mib[idx:idx+4])
+	route.metric = binary.LittleEndian.Uint32(mib[idx : idx+4])
 	idx += 4
-	route.protocol = RouteProtocol(binary.LittleEndian.Uint32(mib[idx:idx+4]))
+	route.protocol = RouteProtocol(binary.LittleEndian.Uint32(mib[idx : idx+4]))
 	idx += 4
-	route.loopback = mib[idx++]
-	route.autoconfigured = mib[idx++]
-	route.publish = mib[idx++]
-	route.immortal = mib[idx++]
-	route.age = binary.LittleEndian.Uint32(mib[idx:idx+4])
+	route.loopback = mib[idx]
+	idx += 1
+	route.autoconfigured = mib[idx]
+	idx += 1
+	route.publish = mib[idx]
+	idx += 1
+	route.immortal = mib[idx]
+	idx += 1
+	route.age = binary.LittleEndian.Uint32(mib[idx : idx+4])
 	idx += 4
 	route.origin = mib[idx]
 

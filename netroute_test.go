@@ -6,7 +6,8 @@ import (
 )
 
 func TestRoute(t *testing.T) {
-	_, gw, src, err := Route(net.IPv4(127, 0, 0, 1))
+	r, _ := New()
+	_, gw, src, err := r.Route(net.IPv4(127, 0, 0, 1))
 	if err != nil {
 		t.Fatal(err)
 	}

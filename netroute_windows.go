@@ -136,10 +136,10 @@ func readDestPrefix(buffer []byte, idx int) (*AddressPrefix, int, error) {
 func readSockAddr(buffer []byte, idx int) (*windows.RawSockaddrAny, int, error) {
 	var rsa windows.RawSockaddrAny
 	rsa.Addr.Family = binary.LittleEndian.Uint16(buffer[idx : idx+2])
-	if rsa.Addr.Family == 4 {
+	if rsa.Addr.Family == 2 /* AF_INET */ {
 		copyInto(rsa.Addr.Data[:], buffer[idx+2:idx+16])
 		return &rsa, idx + 16, nil
-	} else if rsa.Addr.Family == 6 {
+	} else if rsa.Addr.Family == 23 /* AF_INET6 */ {
 		//TODO: 24 bytes?
 		panic("no v6 len")
 	} else {

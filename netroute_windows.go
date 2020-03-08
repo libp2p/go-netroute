@@ -222,7 +222,7 @@ func (r *winRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface
 	}
 	iface = getIface(route.index)
 
-	if route.nextHop.Addr.Family == 0 /* AF_UNDEF */ {
+	if route nextHop == nil || route.nextHop.Addr.Family == 0 /* AF_UNDEF */ {
 		return iface, nil, pref, nil
 	}
 	addr, err := route.nextHop.Sockaddr()

@@ -1,0 +1,15 @@
+language: go
+
+go:
+- 1.13.x
+
+os:
+  - linux
+  - osx
+  - windows
+
+jobs:
+  fast_finish: true
+
+script:
+  - go test -v -race .

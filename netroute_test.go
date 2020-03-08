@@ -6,7 +6,10 @@ import (
 )
 
 func TestRoute(t *testing.T) {
-	r, _ := New()
+	r, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Route to 127.0.0.1 shouldn't have a gateway
 	_, gw, _, err := r.Route(net.IPv4(127, 0, 0, 1))

@@ -7,6 +7,7 @@ package netroute
 // Reference:
 // https://docs.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getbestroute2
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -168,6 +169,26 @@ func getBestRoute2(interfaceLuid *NetLUID, interfaceIndex uint32, sourceAddress,
 	return
 }
 
+func getIface(index uint32) *net.Interface {
+	var ifRow windows.MibIfRow
+	ifRow.Index = index
+	err := windows.GetIfEntry(&ifRow)
+	if err != nil {
+		return il
+	}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	for _, iface := range ifaces {
+		if bytes.Equal(iface.HardwareAddr, ifRow.PhysAddr) {
+			return &iface
+		}
+	}
+	return nil
+}
+
 type winRouter struct{}
 
 func (r *winRouter) Route(dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
@@ -179,6 +200,8 @@ func (r *winRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	iface := getIface(route.index)
+
 	if route.nextHop.Addr.Family == 0 /* AF_UNDEF */ {
 		return nil, nil, pref, nil
 	}

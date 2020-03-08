@@ -3,8 +3,6 @@
 package netroute
 
 import (
-	"net"
-
 	"github.com/google/gopacket/routing"
 )
 

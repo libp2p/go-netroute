@@ -1,7 +1,6 @@
 package netroute
 
 import (
-	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -31,20 +30,17 @@ func TestRoute(t *testing.T) {
 		if strings.HasPrefix(addr.Network(), "ip") {
 			_, ipn, _ := net.ParseCIDR(addr.String())
 			if ipn.IP.To4() == nil && !ipn.IP.IsInterfaceLocalMulticast() && !ipn.IP.IsLinkLocalUnicast() && !ipn.IP.IsLinkLocalMulticast() {
-				fmt.Printf("See IPv6 Interface: %v\n", addr)
 				hasV6 = true
 				break
 			}
 		}
 	}
 
-	iface, gw, src, err := r.Route(localAddr)
+	_, gw, src, err := r.Route(localAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gw != nil || !src.Equal(localAddr) {
-		fmt.Printf("iface for localhost is %v\n", iface)
-		fmt.Printf("when routing to %v, saw %v\n", localAddr, src)
 		t.Fatalf("Did not expect gateway to localhost: %v", gw)
 	}
 

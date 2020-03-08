@@ -168,7 +168,7 @@ func toIPAddr(a route.Addr) (net.IP, error) {
 		copy(ip, t.IP[:])
 		return ip, nil
 	default:
-		return net.IP{}, fmt.Errorf("unknown family: %T", t)
+		return net.IP{}, fmt.Errorf("unknown family: %v", t)
 	}
 }
 

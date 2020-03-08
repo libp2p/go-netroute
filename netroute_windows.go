@@ -174,7 +174,7 @@ func getIface(index uint32) *net.Interface {
 	ifRow.Index = index
 	err := windows.GetIfEntry(&ifRow)
 	if err != nil {
-		return il
+		return nil
 	}
 
 	ifaces, err := net.Interfaces()
@@ -182,7 +182,7 @@ func getIface(index uint32) *net.Interface {
 		return nil
 	}
 	for _, iface := range ifaces {
-		if bytes.Equal(iface.HardwareAddr, ifRow.PhysAddr) {
+		if bytes.Equal(iface.HardwareAddr, ifRow.PhysAddr[:]) {
 			return &iface
 		}
 	}
@@ -200,10 +200,10 @@ func (r *winRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	iface := getIface(route.index)
+	iface = getIface(route.index)
 
 	if route.nextHop.Addr.Family == 0 /* AF_UNDEF */ {
-		return nil, nil, pref, nil
+		return iface, nil, pref, nil
 	}
 	addr, err := route.nextHop.Sockaddr()
 	if err != nil {
@@ -211,7 +211,7 @@ func (r *winRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface
 	}
 	nextHop, _ := sockaddrnet.SockaddrToIPAndZone(addr)
 
-	return nil, nextHop, pref, nil
+	return iface, nextHop, pref, nil
 }
 
 func New() (routing.Router, error) {

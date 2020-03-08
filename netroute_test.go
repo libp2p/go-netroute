@@ -2,6 +2,7 @@ package netroute
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -11,12 +12,25 @@ func TestRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Route to 127.0.0.1 shouldn't have a gateway
-	_, gw, _, err := r.Route(net.IPv4(127, 0, 0, 1))
+	ifs, err := net.Interfaces()
+	if err != nil || len(ifs) == 0 {
+		t.Skip("Can't test routing without access to system interfaces")
+	}
+
+	var localAddr net.IP
+	addrs, err := ifs[0].Addrs()
+	for _, addr := range addrs {
+		if strings.HasPrefix(addr.Network(), "ip") {
+			localAddr, _, _ = net.ParseCIDR(addr.String())
+			break
+		}
+	}
+
+	_, gw, src, err := r.Route(localAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gw != nil {
+	if gw != nil || !src.Equal(localAddr) {
 		t.Fatalf("Did not expect gateway to localhost: %v", gw)
 	}
 

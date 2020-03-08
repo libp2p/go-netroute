@@ -29,5 +29,5 @@ func New() (routing.Router, error) {
 	if err != nil {
 		return nil, err
 	}
-	return router{r}, nil
+	return &router{r}, nil
 }

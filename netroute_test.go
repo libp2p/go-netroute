@@ -18,11 +18,21 @@ func TestRoute(t *testing.T) {
 	}
 
 	var localAddr net.IP
+	var hasV6 bool
 	addrs, err := ifs[0].Addrs()
 	for _, addr := range addrs {
 		if strings.HasPrefix(addr.Network(), "ip") {
 			localAddr, _, _ = net.ParseCIDR(addr.String())
 			break
+		}
+	}
+	for _, addr := range addrs {
+		if strings.HasPrefix(addr.Network(), "ip") {
+			_, ipn, _ := net.ParseCIDR(addr.String())
+			if ipn.IP.To4() == nil {
+				hasV6 = true
+				break
+			}
 		}
 	}
 
@@ -44,6 +54,9 @@ func TestRoute(t *testing.T) {
 	}
 
 	// Route to v4 and v6 should differ.
+	if !hasV6 {
+		return
+	}
 	_, v6gw, _, err := r.Route(net.ParseIP("2607:f8b0:400a:809::200e")) // at one point google.
 	if err != nil {
 		t.Fatal(err)

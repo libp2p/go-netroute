@@ -21,8 +21,13 @@ func (r *router) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface *n
 	if dst.Equal(preferredSrc) {
 		gateway = nil
 	}
+	return iface, gateway, preferredSrc, err
 }
 
 func New() (routing.Router, error) {
-	return router{routing.New()}
+	r, err := routing.New()
+	if err != nil {
+		return nil, err
+	}
+	return router{r}, nil
 }

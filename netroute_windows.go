@@ -92,7 +92,7 @@ func copyInto(dst []int8, src []byte) {
 	}
 }
 
-func isZero(addr *windows.RawSockaddrAny) {
+func isZero(addr *windows.RawSockaddrAny) bool {
 	for _, b := range addr.Addr.Data {
 		if b != 0 {
 			return false

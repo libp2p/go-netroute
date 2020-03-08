@@ -6,7 +6,7 @@ import (
 	"github.com/google/gopacket/routing"
 )
 
-struct router {
+type router struct {
 	routing.Router
 }
 

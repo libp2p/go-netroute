@@ -70,6 +70,12 @@ func callBestRoute(source, dest net.IP) (*mib_row2, net.IP, error) {
 		return nil, nil, err
 	}
 
+	// per https://docs.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipforward_row2
+	// If the route is to a local loopback address or an IP address on the local link, the next hop is unspecified (all zeros)
+	if isZero(route.nextHop) {
+		route.nextHop = nil
+	}
+
 	var bestSourceRaw windows.RawSockaddrAny
 	bestSourceRaw.Addr.Family = binary.LittleEndian.Uint16(bestSource[0:2])
 	copyInto(bestSourceRaw.Addr.Data[:], bestSource[2:16])
@@ -84,6 +90,20 @@ func copyInto(dst []int8, src []byte) {
 	for i, b := range src {
 		dst[i] = int8(b)
 	}
+}
+
+func isZero(addr *windows.RawSockaddrAny) {
+	for _, b := range addr.Addr.Data {
+		if b != 0 {
+			return false
+		}
+	}
+	for _, b := range addr.Pad {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func parseRoute(mib []byte) (*mib_row2, error) {

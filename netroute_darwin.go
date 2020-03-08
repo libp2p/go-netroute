@@ -245,7 +245,7 @@ func New() (routing.Router, error) {
 				routeInfo.Src.Mask = net.CIDRMask(0, 8*len(routeInfo.Src.IP))
 			}
 		} else {
-			return nil, fmt.Errorf("Unexpected RIB src: %v", err)
+			return nil, fmt.Errorf("Unexpected RIB src: (%v) %v", m.Addrs, err)
 		}
 		routeInfo.OutputIface = uint32(m.Index)
 

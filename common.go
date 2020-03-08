@@ -135,8 +135,14 @@ func (r *router) route(routes routeSlice, input net.HardwareAddr, src, dst net.I
 			continue
 		}
 		if mostSpecificRt != nil {
-			candSpec, _ := rt.Dst.Mask.Size()
-			if curSpec, _ := mostSpecificRt.Dst.Mask.Size(); candSpec < curSpec {
+			var candSpec, curSpec int
+			if rt.Dst != nil {
+				candSpec, _ = rt.Dst.Mask.Size()
+			}
+			if mostSpecificRt.Dst != nil {
+				curSpec, _ = mostSpecificRt.Dst.Mask.Size()
+			}
+			if candSpec < curSpec {
 				continue
 			}
 		}

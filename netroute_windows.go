@@ -20,8 +20,7 @@ import (
 )
 
 var (
-	modiphlpapi = syscall.NewLazyDLL("iphlpapi.dll")
-
+	modiphlpapi       = syscall.NewLazyDLL("iphlpapi.dll")
 	procGetBestRoute2 = modiphlpapi.NewProc("GetBestRoute2")
 )
 
@@ -127,23 +126,27 @@ func parseRoute(mib []byte) (*mib_row2, error) {
 }
 
 func readDestPrefix(buffer []byte, idx int) (*AddressPrefix, int, error) {
-	sock, idx, err := readSockAddr(buffer, idx)
+	sock, idx2, err := readSockAddr(buffer, idx)
 	if err != nil {
 		return nil, 0, err
 	}
-	pfixLen := buffer[idx]
-	return &AddressPrefix{sock, pfixLen}, idx + 1, nil
+	pfixLen := buffer[idx2]
+	if idx2-idx > 32 {
+		return nil, idx, fmt.Errorf("Unexpectedly large internal sockaddr struct")
+	}
+	return &AddressPrefix{sock, pfixLen}, idx + 32, nil
 }
 
 func readSockAddr(buffer []byte, idx int) (*windows.RawSockaddrAny, int, error) {
 	var rsa windows.RawSockaddrAny
 	rsa.Addr.Family = binary.LittleEndian.Uint16(buffer[idx : idx+2])
-	if rsa.Addr.Family == 2 /* AF_INET */ || rsa.Addr.Family == 0 /* AF_UNDEF */ {
+	if rsa.Addr.Family == windows.AF_INET || rsa.Addr.Family == windows.AF_UNSPEC {
 		copyInto(rsa.Addr.Data[:], buffer[idx+2:idx+16])
 		return &rsa, idx + 16, nil
-	} else if rsa.Addr.Family == 23 /* AF_INET6 */ {
-		//TODO: 24 bytes?
-		panic("no v6 len")
+	} else if rsa.Addr.Family == windows.AF_INET6 {
+		copyInto(rsa.Addr.Data[:], buffer[idx+2:idx+16])
+		copyInto(rsa.Pad[:], buffer[idx+16:idx+28])
+		return &rsa, idx + 28, nil
 	} else {
 		return nil, 0, fmt.Errorf("Unknown windows addr family %d", rsa.Addr.Family)
 	}
@@ -177,7 +180,6 @@ func (r *winRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface
 		return nil, nil, nil, err
 	}
 	if route.nextHop.Addr.Family == 0 /* AF_UNDEF */ {
-		route.nextHop.Addr.Family = 2
 		return nil, nil, pref, nil
 	}
 	addr, err := route.nextHop.Sockaddr()

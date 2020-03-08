@@ -130,20 +130,27 @@ func (r *router) route(routes routeSlice, input net.HardwareAddr, src, dst net.I
 			}
 		}
 	}
+	var mostSpecificRt *rtInfo
 	for _, rt := range routes {
 		if rt.InputIface != 0 && rt.InputIface != inputIndex {
 			continue
 		}
 		if src != nil && rt.Src != nil && !rt.Src.Contains(src) {
-			fmt.Printf("ignoring %v b/c src %v\n", rt, src)
 			continue
 		}
 		if rt.Dst != nil && !rt.Dst.Contains(dst) {
-			fmt.Printf("ignoring %v b/c dst\n", rt)
 			continue
 		}
-		fmt.Printf("Using route: %v\n", rt)
-		return int(rt.OutputIface), rt.Gateway, rt.PrefSrc, nil
+		if mostSpecificRt != nil {
+			candSpec, _ := rt.Dst.Mask.Size()
+			if curSpec, _ := mostSpecificRt.Dst.Mask.Size(); candSpec < curSpec {
+				continue
+			}
+		}
+		mostSpecificRt = rt
+	}
+	if mostSpecificRt != nil {
+		return int(mostSpecificRt.OutputIface), mostSpecificRt.Gateway, mostSpecificRt.PrefSrc, nil
 	}
 	err = fmt.Errorf("no route found for %v", dst)
 	return

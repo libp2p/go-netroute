@@ -1,4 +1,4 @@
-module github.com/willscott/go-netroute
+module github.com/libp2p/go-netroute
 
 go 1.13
 

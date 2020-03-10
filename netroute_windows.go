@@ -11,7 +11,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"syscall"
 	"unsafe"
 
 	"github.com/google/gopacket/routing"
@@ -21,7 +20,7 @@ import (
 )
 
 var (
-	modiphlpapi       = syscall.NewLazyDLL("iphlpapi.dll")
+	modiphlpapi       = windows.NewLazyDLL("iphlpapi.dll")
 	procGetBestRoute2 = modiphlpapi.NewProc("GetBestRoute2")
 )
 
@@ -174,17 +173,16 @@ func readSockAddr(buffer []byte, idx int) (*windows.RawSockaddrAny, int, error) 
 }
 
 func getBestRoute2(interfaceLuid *NetLUID, interfaceIndex uint32, sourceAddress, destinationAddress *windows.RawSockaddrAny, addressSortOptions uint32, bestRoute []byte, bestSourceAddress []byte) (errcode error) {
-	r0, _, _ := syscall.Syscall9(procGetBestRoute2.Addr(), 7,
+	r0, _, _ := procGetBestRoute2.Call(
 		uintptr(unsafe.Pointer(interfaceLuid)),
 		uintptr(interfaceIndex),
 		uintptr(unsafe.Pointer(sourceAddress)),
 		uintptr(unsafe.Pointer(destinationAddress)),
 		uintptr(addressSortOptions),
 		uintptr(unsafe.Pointer(&bestRoute[0])),
-		uintptr(unsafe.Pointer(&bestSourceAddress[0])),
-		0, 0)
+		uintptr(unsafe.Pointer(&bestSourceAddress[0])))
 	if r0 != 0 {
-		errcode = syscall.Errno(r0)
+		errcode = windows.Errno(r0)
 	}
 	return
 }

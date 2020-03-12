@@ -27,7 +27,7 @@ go get github.com/libp2p/go-netroute
 
 To be used for querying the local OS routing table.
 
-```
+```go
 import (
     netroute "github.com/libp2p/go-netroute"
 )

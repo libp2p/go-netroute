@@ -20,9 +20,6 @@ func TestRoute(t *testing.T) {
 	var localAddr net.IP
 	var hasV6 bool
 	addrs, err := ifs[0].Addrs()
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, addr := range addrs {
 		if strings.HasPrefix(addr.Network(), "ip") {
 			localAddr, _, _ = net.ParseCIDR(addr.String())

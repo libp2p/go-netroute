@@ -57,8 +57,8 @@ func (r routeSlice) Swap(i, j int) {
 }
 
 type router struct {
-	ifaces []net.Interface
-	addrs  []ipAddrs
+	ifaces map[int]net.Interface
+	addrs  map[int]ipAddrs
 	v4, v6 routeSlice
 }
 
@@ -98,9 +98,12 @@ func (r *router) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface *n
 	}
 
 	// Interfaces are 1-indexed, but we store them in a 0-indexed array.
-	ifaceIndex--
+	correspondingIface, ok := r.ifaces[ifaceIndex]
+	if !ok {
+		err = errors.New("Route refereced unknown interface")
+	}
+	iface = &correspondingIface
 
-	iface = &r.ifaces[ifaceIndex]
 	if preferredSrc == nil {
 		switch {
 		case dst.To4() != nil:

@@ -53,6 +53,8 @@ const (
 
 func New() (routing.Router, error) {
 	rtr := &router{}
+	rtr.ifaces = make(map[int]net.Interface)
+	rtr.addrs = make(map[int]ipAddrs)
 	tab, err := route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)
 	if err != nil {
 		return nil, err
@@ -125,7 +127,7 @@ func New() (routing.Router, error) {
 		return nil, err
 	}
 	for _, iface := range ifaces {
-		rtr.ifaces = append(rtr.ifaces, iface)
+		rtr.ifaces[iface.Index] = iface
 		var addrs ipAddrs
 		ifaceAddrs, err := iface.Addrs()
 		if err != nil {
@@ -145,7 +147,7 @@ func New() (routing.Router, error) {
 				}
 			}
 		}
-		rtr.addrs = append(rtr.addrs, addrs)
+		rtr.addrs[iface.Index] = addrs
 	}
 	return rtr, nil
 }

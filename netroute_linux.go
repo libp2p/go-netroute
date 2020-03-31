@@ -22,6 +22,8 @@ import (
 
 func New() (routing.Router, error) {
 	rtr := &router{}
+	rtr.ifaces = make(map[int]net.Interface)
+	rtr.addrs = make(map[int]ipAddrs)
 	tab, err := syscall.NetlinkRIB(syscall.RTM_GETROUTE, syscall.AF_UNSPEC)
 	if err != nil {
 		return nil, err
@@ -83,7 +85,7 @@ loop:
 		return nil, err
 	}
 	for _, iface := range ifaces {
-		rtr.ifaces = append(rtr.ifaces, iface)
+		rtr.ifaces[iface.Index] = iface
 		var addrs ipAddrs
 		ifaceAddrs, err := iface.Addrs()
 		if err != nil {
@@ -103,7 +105,7 @@ loop:
 				}
 			}
 		}
-		rtr.addrs = append(rtr.addrs, addrs)
+		rtr.addrs[iface.Index] = addrs
 	}
 	return rtr, nil
 }

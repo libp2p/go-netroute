@@ -44,10 +44,10 @@ func TestRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	if gw != nil || !src.Equal(localAddr) {
-		t.Fatalf("Did not expect gateway to localhost: %v", gw)
+		t.Fatalf("Did not expect gateway for %v->%v: %v", src, localAddr, gw)
 	}
 
-	// Route to somewher external should.
+	// Route to somewhere external should.
 	_, gw, _, err = r.Route(net.IPv4(8, 8, 8, 8))
 	if err != nil {
 		t.Fatal(err)

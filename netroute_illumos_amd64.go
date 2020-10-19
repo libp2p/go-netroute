@@ -304,8 +304,9 @@ func decodeGetMessage(header unix.RtMsghdr, message io.ReadSeeker) (iface *net.I
 		iface.Flags |= parseFlags(ip)
 
 		if !ip.IsLoopback() { // TODO: review; test imply this should be nil when loopback?
-			gateway = ip // system returns loopback IP to us for this value, but we explicitly omitt it
+			gateway = ip // system returns loopback IP to us for this value, but we explicitly omit it
 			// is this correct behavior?
+			// Why doesn't the test expect this to be populated? / Why does our system provide it?
 		}
 	}
 
@@ -330,27 +331,27 @@ func decodeGetMessage(header unix.RtMsghdr, message io.ReadSeeker) (iface *net.I
 		}
 		iface.Index = int(dataLink.Index)
 
-		// NOTE: Go doesn't let you cast ranges of bytes the way we want to
-		// below is a pedantic safe way to copy the values, and a more direct way follows
-		/*
-			var (
-				nameLen  = int(dataLink.Nlen)
-				linkLen  = int(dataLink.Alen)
-				runes    = make([]rune, nameLen)
-				linkAddr = make([]byte, linkLen)
-				i        int
-			)
-			for i = nameLen - 1; i >= 0; i-- { // extract name
-				runes[i] = rune(dataLink.Data[i])
-			}
-			iface.Name = string(runes)
+		// NOTE: Go doesn't let you cast ranges of bytes the way we want to.
+		/* This is a pedantically safe way to copy the values ...
+		var (
+			nameLen  = int(dataLink.Nlen)
+			linkLen  = int(dataLink.Alen)
+			runes    = make([]rune, nameLen)
+			linkAddr = make([]byte, linkLen)
+			i        int
+		)
+		for i = nameLen - 1; i >= 0; i-- { // extract name
+			runes[i] = rune(dataLink.Data[i])
+		}
+		iface.Name = string(runes)
 
-			if header.Addrs&unix.RTA_IFA != 0 && linkLen > 0 {
-				for i = linkLen - 1; i >= 0; i-- { // extract addr
-					linkAddr[i] = byte(dataLink.Data[nameLen+i])
-				}
-				iface.HardwareAddr = linkAddr
+		if header.Addrs&unix.RTA_IFA != 0 && linkLen > 0 {
+			for i = linkLen - 1; i >= 0; i-- { // extract addr
+				linkAddr[i] = byte(dataLink.Data[nameLen+i])
 			}
+			iface.HardwareAddr = linkAddr
+		}
+		// ... but we use a more direct way below.
 		*/
 
 		nlen := dataLink.Nlen
@@ -478,8 +479,8 @@ func sendGetRequest(sc systemChannel, message []byte) error {
 }
 
 func receiveGetResponse(sequence int32, responseQueue chan routingGetResponse) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
-	// We account for both a total call time and provide an interrupt during receive.
-	// Preventing us from looping infinitely, and blocking during the channel read forever.
+	// We account for the total call time, and provide a timeout for the receive.
+	// Preventing us from looping infinitely, or blocking (forever) during the channel read.
 	callTimeout := time.Now().Add(messageTimeout) // deadline style
 	receiveTimeout := time.After(messageTimeout)  // select trigger style
 	errTimeout := fmt.Errorf("system did not respond to our request before timeout: %v", callTimeout)

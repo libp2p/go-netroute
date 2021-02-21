@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -193,7 +194,8 @@ func parseRoutingGetMessages(ctx context.Context, sc systemChannel) chan routing
 
 	go func() {
 		var ( // static declarations; reused within loop
-			header unix.RtMsghdr
+			//header unix.RtMsghdr
+			header syscall.RtMsghdr
 			read   int
 			err    error
 		)
@@ -279,7 +281,8 @@ func parseRoutingGetMessages(ctx context.Context, sc systemChannel) chan routing
 // message data is expected to conform to the specification defined in `route (7p)`
 // NOTE: callers responsibility to check message length and type
 // we assume the arguments are associated and of type RTM_GET
-func decodeGetMessage(header unix.RtMsghdr, message io.ReadSeeker) (iface *net.Interface, src, gateway net.IP, err error) {
+//func decodeGetMessage(header unix.RtMsghdr, message io.ReadSeeker) (iface *net.Interface, src, gateway net.IP, err error) {
+func decodeGetMessage(header syscall.RtMsghdr, message io.ReadSeeker) (iface *net.Interface, src, gateway net.IP, err error) {
 	iface = new(net.Interface)
 	iface.MTU = int(header.Rmx.Mtu)
 
@@ -430,7 +433,9 @@ func parseIP(reader io.ReadSeeker) (ip net.IP, err error) {
 }
 
 func generateRoutingGetMessage(dst net.IP, sequence int32) ([]byte, error) {
-	header := unix.RtMsghdr{
+	// FIXME: mismatch size in unix pkg, does not match its own constant sizeof value
+	// header := unix.RtMsghdr{
+	header := syscall.RtMsghdr{
 		Version: unix.RTM_VERSION,
 		Type:    unix.RTM_GET,
 		Addrs:   unix.RTA_DST | unix.RTA_IFP,

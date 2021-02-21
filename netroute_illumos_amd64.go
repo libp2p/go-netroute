@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"reflect"
 	"runtime"
@@ -18,6 +19,8 @@ import (
 	"github.com/google/gopacket/routing"
 	"golang.org/x/sys/unix"
 )
+
+func init() { log.SetFlags(log.Lshortfile) } // TODO: dbg lint
 
 const (
 	PF_ROUTE = unix.AF_ROUTE
@@ -152,11 +155,11 @@ func (r *bsdRouter) Route(dst net.IP) (iface *net.Interface, gateway, preferredS
 	defer func() { // TODO: dbg lint
 		switch err {
 		case nil:
-			fmt.Printf("[%d]%v was routed -> %v|%v\n", sequence, dst, iface, gateway)
+			log.Printf("[%d] %v was routed -> %v|%v\n", sequence, dst, iface, gateway)
 		case unix.ESRCH:
-			fmt.Printf("[%d] Error from Route():\n\tdst: (%v)\n\t%#v\n\terr: Not in routing table\n", sequence, dst, dst)
+			log.Printf("[%d] Error from Route():\n\tdst: (%v)\n\t%#v\n\terr: Not in routing table\n", sequence, dst, dst)
 		default:
-			fmt.Printf("[%d] Error from Route():\n\tdst: (%v)\n\t%#v\n\terr: %s\n\tinterface: %#v\n\tgateway: %#v\n\tsrc: %#v\n", sequence, dst, dst, err, iface, gateway, preferredSrc)
+			log.Printf("[%d] Error from Route():\n\tdst: (%v)\n\t%#v\n\terr: %s\n\tinterface: %#v\n\tgateway: %#v\n\tsrc: %#v\n", sequence, dst, dst, err, iface, gateway, preferredSrc)
 		}
 	}()
 
@@ -197,7 +200,7 @@ func parseRoutingGetMessages(ctx context.Context, sc systemChannel) chan routing
 
 		defer func() {
 			if err != nil {
-				fmt.Println("closing chan: ", err) // TODO: DBG lint
+				log.Println("closing chan: ", err) // TODO: DBG lint
 				goChan <- routingGetResponse{err: err}
 			}
 			close(goChan)
@@ -211,11 +214,11 @@ func parseRoutingGetMessages(ctx context.Context, sc systemChannel) chan routing
 			read, err = unix.Read(sc, messageReceiveBuffer)
 			switch err {
 			default: // unexpected error; stop processing
-				fmt.Println("fatal err:", err)
+				log.Println("fatal err:", err)
 				return
 			//case unix.EAGAIN, unix.EWOULDBLOCK: // no response
 			case unix.ESRCH: // route was not found; non-fatal
-				fmt.Println("not found:", err)
+				log.Println("not found:", err)
 			// TODO: what are we expected to do here for the netroute API?
 			// return an error? nil values?
 			case nil: // no error; process message
@@ -456,8 +459,7 @@ func generateRoutingGetMessage(dst net.IP, sequence int32) ([]byte, error) {
 	header.Msglen = uint16(messageSize)
 
 	// serialize the header and address vector
-	message := new(bytes.Buffer)
-	message.Grow(messageSize)
+	message := bytes.NewBuffer(make([]byte, 0, messageSize))
 	if err := binary.Write(message, binary.LittleEndian, &header); err != nil { // TODO: use "native" endian, not "little"
 		return nil, err
 	}
@@ -469,10 +471,10 @@ func generateRoutingGetMessage(dst net.IP, sequence int32) ([]byte, error) {
 }
 
 // NOTE: [protocol - `route (7P)`]
-// The system will return errors immediately from `write`/`sendmsg`
-// however, it will also broadcast this message to all listeners. (that includes the source sender)
-// If a non-fatal error is encountered (a defined routing error, not a general/socket error)
-// the caller should expect this messages response to come back to them over the system channel
+// The system will return errors immediately from `write`/`sendmsg`.
+// However, it will also broadcast this message to all listeners. (that includes the source sender)
+// If a non-fatal error is encountered (a defined routing error, not a general/socket error).
+// The caller should still expect this message's response to come back on the system channel.
 func sendGetRequest(sc systemChannel, message []byte) error {
 	_, err := unix.Write(sc, message)
 	return err

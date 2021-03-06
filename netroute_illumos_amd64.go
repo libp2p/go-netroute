@@ -4,14 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"reflect"
-	"runtime"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -21,14 +18,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Message sequence value.
+// We provide a unique value for each request,
+// and utilize it to route the response to the caller.
+// NOTE: This value should be handled atomically.
+var sequence int32
+
 func init() { log.SetFlags(log.Lshortfile) } // TODO: dbg lint
 
 const (
 	PF_ROUTE = unix.AF_ROUTE
-
-	messageTimeout        = time.Second * 15 // how long we'll wait for the system to respond
-	messageExpireDuration = messageTimeout   // how long a message will remain valid in our own queue
-	messageQueueLength    = 8                // arbitrary
 
 	// MAGIC: note that this is not the maximum possible size of a route message
 	// it is only the maximum possible size of a message that we'll be requesting.
@@ -37,122 +36,25 @@ const (
 			4) + // including vector entries DST, GATEWAY, NETMASK, GENMASK
 		unix.SizeofSockaddrDatalink // along with space for the interface sockaddr IFP+IFA
 
-// the maximum possible message is theoretically this, but we only care about inet and inet6 addrs
-// (substitute `RTA_BRD` for whatever the last addr defined in the route vector spec currently is)
-// var messageReceiveBufferSize = unix.SizeofRtMsghdr +
-//	(unix.SizeofSockaddrAny * (bits.TrailingZeros(unix.RTA_BRD) + 1))
+		// the maximum possible message is theoretically this, but we only care about inet and inet6 addrs
+		// (substitute `RTA_BRD` for whatever the last addr defined in the route vector spec currently is)
+		// var messageReceiveBufferSize = unix.SizeofRtMsghdr +
+		//	(unix.SizeofSockaddrAny * (bits.TrailingZeros(unix.RTA_BRD) + 1))
 )
-
-// While we can have multiple connections and message loops going,
-// there's not much point to this when a single router object
-// can handle all clients and their requests (with a single message queue).
-// So we create a pkg level shared instance that's initialized on demand
-// and reaped by runtime semantics.
-var (
-	instanceGaurd sync.Mutex
-	pkgRouter     *sharedRouter
-)
-
-// bsdRouter implements the Go netroute interface
-// by utilizing the (4.3BSD-Reno, Net/2) route protocol.
-// This specific implementation conforms to SunOS/Solaris/Illumos specifications.
-// Considering the Net/2 lineage, it should be easily adaptable to other systems
-// that utilize it. Such as the named BSDs, QNX, AIX, HP-UX, et al.
-type bsdRouter struct {
-	systemChannel systemChannel           // The connection between our process and the routing system
-	responseQueue chan routingGetResponse // Storage for system messages that have been translated to Go format
-	sequence      int32                   // Message sequence value; we provide a unique value for each message
-	cancel        context.CancelFunc      // When called, all route operations should cease
-}
-
-func (r *bsdRouter) Close() error {
-	if r.cancel == nil || r.systemChannel == 0 {
-		return errors.New("router was never initialized")
-	}
-	r.cancel()
-	return unix.Close(r.systemChannel) // we expect the system to complain for us if sd <= 0
-}
-
-// sharedRouter shares a single Router instance with callers.
-type sharedRouter struct {
-	bsdRouter
-	refCount uint
-}
-
-func (r *sharedRouter) Close() error {
-	instanceGaurd.Lock()
-	defer instanceGaurd.Unlock()
-
-	r.refCount--
-	if r.refCount == 0 {
-		pkgRouter = nil
-		return r.bsdRouter.Close()
-	}
-	return nil
-}
 
 type (
-	systemChannel      = int // currently a socket descriptor
-	routingGetResponse struct {
-		// Go routing interface
-		iface                 *net.Interface
-		gateway, preferredSrc net.IP
-		// package message coordination data
-		sequence   int32     // message identifier; should be unique per request/response pair in our use
-		expiration time.Time // messages should be discarded if they're expired
-		err        error     // will be non-nil if the router encountered an error while handling a response from the system
-	}
+	systemChannel = int // currently a socket descriptor
+	// bsdRouter implements the Go netroute interface
+	// by utilizing the (4.3BSD-Reno, Net/2) route protocol.
+	// This specific implementation conforms to SunOS/Solaris/Illumos specifications.
+	// Considering the Net/2 lineage, it should be easily adaptable to other systems
+	// that utilize it. Such as the named BSDs, QNX, AIX, HP-UX, et al.
+	bsdRouter struct{}
 )
 
-func New() (routing.Router, error) {
-	instanceGaurd.Lock()
-	defer instanceGaurd.Unlock()
-
-init:
-	if pkgRouter != nil {
-		pkgRouter.refCount++
-
-		/* FIXME: this is still incorrect
-		we want a finalizer to trigger when the reference falls out of scope
-		the pkg variable is never going to fall out of scope itself
-		but we also can't / don't want to return a double pointer as the interface
-		this may be impossible on its own so we'll have to create a router
-		and in New() dynamically construct a shared reference in some way that embeds it
-
-		routerInstance := pkgRouter
-		runtime.SetFinalizer(&routerInstance, (*sharedRouter).Close)
-		return routerInstance, nil
-		*/
-		return pkgRouter, nil
-	}
-
-	// initialise a `route (7P)` communication channel with the system
-	systemChannel, err := unix.Socket(
-		PF_ROUTE,       // routing service ID
-		unix.SOCK_RAW,  // direct channel to the system
-		unix.AF_UNSPEC, // allow messages for any address family
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// process messages for as long as this context is valid
-	ctx, cancel := context.WithCancel(context.Background())
-
-	pkgRouter = &sharedRouter{
-		bsdRouter: bsdRouter{
-			responseQueue: parseRoutingGetMessages(ctx, systemChannel),
-			systemChannel: systemChannel,
-			cancel:        cancel,
-		},
-	}
-
-	goto init // makes more sense than duplicating instance creation code and explanation here
-}
+func New() (routing.Router, error) { return new(bsdRouter), nil }
 
 func (r *bsdRouter) Route(dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
-	sequence := atomic.AddInt32(&r.sequence, 1)
-
 	defer func() { // TODO: dbg lint
 		switch err {
 		case nil:
@@ -164,16 +66,106 @@ func (r *bsdRouter) Route(dst net.IP) (iface *net.Interface, gateway, preferredS
 		}
 	}()
 
-	var message []byte
-	if message, err = generateRoutingGetMessage(dst, sequence); err != nil {
+	const messageTimeout = time.Second * 15 // how long we'll wait for the system to respond
+	var (
+		ourSequence = atomic.AddInt32(&sequence, 1)
+		ourPid      = int32(unix.Getpid())
+		router      systemChannel
+		request     []byte
+	)
+	// initialize a `route (7P)` communication channel with the system
+	router, err = unix.Socket(
+		PF_ROUTE,       // routing service ID
+		unix.SOCK_RAW,  // direct channel to the system
+		unix.AF_UNSPEC, // allow messages for any address family
+	)
+	if err != nil {
+		return
+	}
+	defer unix.Close(router)
+	//log.Printf("router:%x\n", router)
+
+	if request, err = generateRoutingGetMessage(dst, ourSequence); err != nil {
 		return
 	}
 
-	if err = sendGetRequest(r.systemChannel, message); err != nil {
+	err = sendGetRequest(router, request)
+	switch err {
+	case nil: // no error; process message
+	case unix.ESRCH: // route known to not exist; don't bother reading the response (same value)
+		err = fmt.Errorf("dst %v not found", dst)
+		return
+	default: // unexpected system error; fatal
 		return
 	}
 
-	return receiveGetResponse(sequence, r.responseQueue)
+	ctx, cancel := context.WithTimeout(context.Background(), messageTimeout)
+	responseErr := make(chan error, 1)
+	go func() {
+		defer cancel()
+		var (
+			//header unix.RtMsghdr // TODO: bug in unix pkg, size mismatch
+			header  syscall.RtMsghdr
+			message = make([]byte, messageReceiveBufferSize)
+		)
+		for {
+			err := ctx.Err()
+			if err != nil { // timed out
+				responseErr <- ctx.Err()
+				return
+			}
+			// read entire message into the buffer
+			read, err := unix.Read(router, message)
+			switch err {
+			default: // unexpected error; stop processing
+				log.Printf("sock(%x) fatal err: %v\n", router, err)
+				responseErr <- err
+				return
+			case unix.ESRCH: // route was not found; non-fatal
+				log.Println("not found:", err)
+				responseErr <- fmt.Errorf("dst %v not found", dst)
+				return
+			// TODO: what are we expected to do here for the netroute API?
+			// return an error? nil values?
+			case nil: // no error; process message
+			}
+			if read < unix.SizeofRtMsghdr {
+				responseErr <- fmt.Errorf("error reading routing message - bytes read are less than message header's size (%d/%d)", read, unix.SizeofRtMsghdr)
+				return
+			}
+
+			// scan message header bytes
+			reader := bytes.NewReader(message)
+			if err := binary.Read(reader, binary.LittleEndian, &header); err != nil { // TODO: native endian
+				responseErr <- err
+				return
+			}
+			if header.Type != unix.RTM_GET || // we're only interested in GET responses,
+				header.Pid != ourPid || // originating from our process,
+				header.Seq != ourSequence { // with our sequence
+				continue // drop other messages
+			}
+			if read != int(header.Msglen) { // this should never happen
+				// if it does the `messageReceiveBufferSize` const needs to be amended
+				responseErr <- fmt.Errorf("our buffer was too small to fit the message (%d/%d)",
+					read, header.Msglen)
+				return
+			}
+
+			// scan message payload
+			// if the system says the message was confirmed, decode it
+			if header.Flags&unix.RTF_DONE != 0 {
+				iface, preferredSrc, gateway, err = decodeGetMessage(header, reader)
+			} else if header.Errno != 0 {
+				err = unix.Errno(header.Errno)
+			}
+			responseErr <- err
+			return
+		}
+	}()
+
+	err = <-responseErr
+	return
 }
 
 func (r *bsdRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
@@ -185,103 +177,9 @@ func (r *bsdRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface
 	return r.Route(dst)
 }
 
-// TODO: cleanup error logic; need to split fatal and non-fatal
-// return everything on the channel, but only stop the loop on fatal errors
-func parseRoutingGetMessages(ctx context.Context, sc systemChannel) chan routingGetResponse {
-	goChan := make(chan routingGetResponse, messageQueueLength)
-	messageReceiveBuffer := make([]byte, messageReceiveBufferSize)
-	pid := int32(unix.Getpid())
-
-	go func() {
-		var ( // static declarations; reused within loop
-			//header unix.RtMsghdr
-			header syscall.RtMsghdr
-			read   int
-			err    error
-		)
-
-		defer func() {
-			if err != nil {
-				log.Println("closing chan: ", err) // TODO: DBG lint
-				goChan <- routingGetResponse{err: err}
-			}
-			close(goChan)
-		}()
-
-		for {
-			// ASYNC NOTE: we use blocking sockets
-			// and depend on the socket provided, to be closed by the caller
-			// when the provided context is canceled
-			// (we shouldn't need anything more complex like IOCP, poll, etc.)
-			read, err = unix.Read(sc, messageReceiveBuffer)
-			switch err {
-			default: // unexpected error; stop processing
-				log.Println("fatal err:", err)
-				return
-			//case unix.EAGAIN, unix.EWOULDBLOCK: // no response
-			case unix.ESRCH: // route was not found; non-fatal
-				log.Println("not found:", err)
-			// TODO: what are we expected to do here for the netroute API?
-			// return an error? nil values?
-			case nil: // no error; process message
-			}
-
-			if read < unix.SizeofRtMsghdr {
-				err = fmt.Errorf("error reading routing message - bytes read are less than message header's size (%d/%d)", read, unix.SizeofRtMsghdr)
-				return
-			}
-
-			reader := bytes.NewReader(messageReceiveBuffer)
-
-			if err = binary.Read(reader, binary.LittleEndian, &header); err != nil { // TODO: native endian
-				return
-			}
-
-			if header.Type != unix.RTM_GET || // we're only interested in GET responses
-				header.Pid != pid { // and only the ones originating from our process
-				if ctx.Err() != nil { // so drop the message and continue (unless we're canceled)
-					return
-				}
-				continue
-			}
-
-			if read != int(header.Msglen) {
-				// this should never happen
-				// if it does the `messageReceiveBufferSize` const needs to be amended
-				err = fmt.Errorf("our buffer was too small to fit the message (%d/%d)", read, header.Msglen)
-				return
-			}
-
-			resp := routingGetResponse{
-				sequence:   header.Seq,
-				expiration: time.Now().Add(messageExpireDuration),
-			}
-			// if the system says the message was confirmed, decode it
-			if header.Flags&unix.RTF_DONE != 0 {
-				if resp.iface, resp.preferredSrc, resp.gateway, err = decodeGetMessage(header, reader); err != nil {
-					return
-				}
-			} else { // otherwise just relay the error
-				if header.Errno != 0 {
-					resp.err = unix.Errno(header.Errno)
-				}
-			}
-
-			select {
-			case goChan <- resp:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	return goChan
-}
-
 // message data is expected to conform to the specification defined in `route (7p)`
 // NOTE: callers responsibility to check message length and type
 // we assume the arguments are associated and of type RTM_GET
-//func decodeGetMessage(header unix.RtMsghdr, message io.ReadSeeker) (iface *net.Interface, src, gateway net.IP, err error) {
 func decodeGetMessage(header syscall.RtMsghdr, message io.ReadSeeker) (iface *net.Interface, src, gateway net.IP, err error) {
 	iface = new(net.Interface)
 	iface.MTU = int(header.Rmx.Mtu)
@@ -476,80 +374,12 @@ func generateRoutingGetMessage(dst net.IP, sequence int32) ([]byte, error) {
 }
 
 // NOTE: [protocol - `route (7P)`]
-// The system will return errors immediately from `write`/`sendmsg`.
-// However, it will also broadcast this message to all listeners. (that includes the source sender)
-// If a non-fatal error is encountered (a defined routing error, not a general/socket error).
-// The caller should still expect this message's response to come back on the system channel.
+// The system will return routing errors immediately from `write`/`sendmsg`.
+// It also broadcasts this message to all listeners.
+// (that includes the source sender)
+// If a routing error is encountered, the caller should still expect this message's response
+// to be sent to the system channel.
 func sendGetRequest(sc systemChannel, message []byte) error {
 	_, err := unix.Write(sc, message)
 	return err
-}
-
-func receiveGetResponse(sequence int32, responseQueue chan routingGetResponse) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
-	// We account for the total call time, and provide a timeout for the receive.
-	// Preventing us from looping infinitely, or blocking (forever) during the channel read.
-	callTimeout := time.Now().Add(messageTimeout) // deadline style
-	receiveTimeout := time.After(messageTimeout)  // select trigger style
-	errTimeout := fmt.Errorf("system did not respond to our request before timeout: %v", callTimeout)
-
-	// if we encounter someone else's message, we keep track of which sequence it had
-	// if we encounter it again later, we'll wait in real time to prevent a tight loop.
-	// (otherwise we could end up in a scenario where
-	// we continuously pull the same message from the queue,
-	// put it back into the queue, and repeat, very quickly)
-	seen := make([]int32, 0, messageQueueLength/4)
-
-	for {
-		if callTimeout.Before(time.Now()) { // entire process took too long; abort
-			err = errTimeout
-			return
-		}
-
-		select {
-		case <-receiveTimeout: // no response at all; abort
-			err = errTimeout
-			return
-
-		case resp, ok := <-responseQueue:
-			if !ok {
-				return
-			}
-
-			if resp.sequence == sequence { // it's for us
-				if resp.err != nil {
-					err = resp.err
-					return
-				}
-
-				iface, gateway, preferredSrc = resp.iface, resp.gateway, resp.preferredSrc
-				return
-			}
-
-			// it's not for us
-			// if it's expired, get the next message from the queue
-			if resp.expiration.Before(time.Now()) {
-				continue
-			}
-
-			// otherwise put it back into the queue
-			responseQueue <- resp
-
-			// if we saw this sequence before, let the thread rest for a little bit
-			// giving the system a chance to respond, the message loop time to enqueue responses,
-			// and other threads the chance to read their own processed messages
-			seq := resp.sequence
-			var sawBefore bool
-			for _, sawn := range seen {
-				if seq == sawn {
-					runtime.Gosched()
-					time.Sleep(200)
-					sawBefore = true
-					break
-				}
-			}
-			if !sawBefore {
-				seen = append(seen, seq)
-			}
-		}
-	}
 }

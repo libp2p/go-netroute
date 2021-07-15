@@ -69,10 +69,10 @@ func New() (routing.Router, error) {
 		routeInfo := new(rtInfo)
 
 		if m.Version < 3 || m.Version > 5 {
-			return nil, fmt.Errorf("Unexpected RIB message version: %d", m.Version)
+			return nil, fmt.Errorf("unexpected RIB message version: %d", m.Version)
 		}
 		if m.Type != 4 /* RTM_GET */ {
-			return nil, fmt.Errorf("Unexpected RIB message type: %d", m.Type)
+			return nil, fmt.Errorf("unexpected RIB message type: %d", m.Type)
 		}
 
 		if m.Flags&RTF_UP == 0 ||
@@ -95,7 +95,7 @@ func New() (routing.Router, error) {
 			}
 			routeInfo.Dst = ipn
 		} else {
-			return nil, fmt.Errorf("Unexpected RIB destination: %v", err)
+			return nil, fmt.Errorf("unexpected RIB destination: %v", err)
 		}
 
 		if m.Flags&RTF_GATEWAY != 0 {

@@ -32,7 +32,11 @@ func TestRoute(t *testing.T) {
 	for _, addr := range addrs {
 		if strings.HasPrefix(addr.Network(), "ip") {
 			_, ipn, _ := net.ParseCIDR(addr.String())
-			if ipn.IP.To4() == nil && !ipn.IP.IsInterfaceLocalMulticast() && !ipn.IP.IsLinkLocalUnicast() && !ipn.IP.IsLinkLocalMulticast() {
+			if ipn.IP.To4() == nil &&
+				!ipn.IP.IsLoopback() &&
+				!ipn.IP.IsInterfaceLocalMulticast() &&
+				!ipn.IP.IsLinkLocalUnicast() &&
+				!ipn.IP.IsLinkLocalMulticast() {
 				hasV6 = true
 				break
 			}

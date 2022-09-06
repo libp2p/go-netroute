@@ -131,6 +131,12 @@ func (r *router) route(routes routeSlice, input net.HardwareAddr, src, dst net.I
 			}
 			if candSpec < curSpec {
 				continue
+			} else if candSpec == curSpec {
+				// it must use `<=` instead `<` because routes are sort by priority,
+				// we should treat earlier rtInfo more specific
+				if mostSpecificRt.Priority <= rt.Priority {
+					continue
+				}
 			}
 		}
 		mostSpecificRt = rt

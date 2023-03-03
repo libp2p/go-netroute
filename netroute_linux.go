@@ -60,12 +60,7 @@ loop:
 			if err != nil {
 				return nil, err
 			}
-			switch rt.Family {
-			case syscall.AF_INET:
-				rtr.v4 = append(rtr.v4, &routeInfo)
-			case syscall.AF_INET6:
-				rtr.v6 = append(rtr.v6, &routeInfo)
-			default:
+			if rt.Family != syscall.AF_INET && rt.Family != syscall.AF_INET6 {
 				continue loop
 			}
 			for _, attr := range attrs {
@@ -91,6 +86,18 @@ loop:
 				case syscall.RTA_PRIORITY:
 					routeInfo.Priority = *(*uint32)(unsafe.Pointer(&attr.Value[0]))
 				}
+			}
+			if routeInfo.Dst == nil && routeInfo.Src == nil && routeInfo.Gateway == nil {
+				continue loop
+			}
+			switch rt.Family {
+			case syscall.AF_INET:
+				rtr.v4 = append(rtr.v4, &routeInfo)
+			case syscall.AF_INET6:
+				rtr.v6 = append(rtr.v6, &routeInfo)
+			default:
+				// should not happen.
+				continue loop
 			}
 		}
 	}

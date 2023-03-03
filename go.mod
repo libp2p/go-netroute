@@ -4,6 +4,6 @@ go 1.19
 
 require (
 	github.com/google/gopacket v1.1.19
-	golang.org/x/net v0.0.0-20220923203811-8be639271d50
-	golang.org/x/sys v0.0.0-20220919091848-fb04ddd9f9c8
+	golang.org/x/net v0.7.0
+	golang.org/x/sys v0.5.0
 )

@@ -20,22 +20,6 @@ import (
 	"github.com/google/gopacket/routing"
 )
 
-// Pulled from http://man7.org/linux/man-pages/man7/rtnetlink.7.html
-// See the section on RTM_NEWROUTE, specifically 'struct rtmsg'.
-type routeInfoInMemory struct {
-	Family byte
-	DstLen byte
-	SrcLen byte
-	TOS    byte
-
-	Table    byte
-	Protocol byte
-	Scope    byte
-	Type     byte
-
-	Flags uint32
-}
-
 func New() (routing.Router, error) {
 	rtr := &router{}
 	rtr.ifaces = make(map[int]net.Interface)
@@ -54,7 +38,7 @@ loop:
 		case syscall.NLMSG_DONE:
 			break loop
 		case syscall.RTM_NEWROUTE:
-			rt := (*routeInfoInMemory)(unsafe.Pointer(&m.Data[0]))
+			rt := (*syscall.RtMsg)(unsafe.Pointer(&m.Data[0]))
 			routeInfo := rtInfo{}
 			attrs, err := syscall.ParseNetlinkRouteAttr(&m)
 			if err != nil {
@@ -68,12 +52,12 @@ loop:
 				case syscall.RTA_DST:
 					routeInfo.Dst = &net.IPNet{
 						IP:   net.IP(attr.Value),
-						Mask: net.CIDRMask(int(rt.DstLen), len(attr.Value)*8),
+						Mask: net.CIDRMask(int(rt.Dst_len), len(attr.Value)*8),
 					}
 				case syscall.RTA_SRC:
 					routeInfo.Src = &net.IPNet{
 						IP:   net.IP(attr.Value),
-						Mask: net.CIDRMask(int(rt.SrcLen), len(attr.Value)*8),
+						Mask: net.CIDRMask(int(rt.Src_len), len(attr.Value)*8),
 					}
 				case syscall.RTA_GATEWAY:
 					routeInfo.Gateway = net.IP(attr.Value)

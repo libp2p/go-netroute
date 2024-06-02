@@ -13,7 +13,7 @@ import (
 	"net"
 	"unsafe"
 
-	"github.com/google/gopacket/routing"
+	"github.com/gopacket/gopacket/routing"
 	"golang.org/x/sys/windows"
 )
 
@@ -234,6 +234,10 @@ func (r *winRouter) RouteWithSrc(input net.HardwareAddr, src, dst net.IP) (iface
 	nextHop, _ := sockaddrToIPAndZone(addr)
 
 	return iface, nextHop, pref, nil
+}
+
+func (r *winRouter) String() string {
+	return "Stringer not supported on Windows"
 }
 
 func New() (routing.Router, error) {

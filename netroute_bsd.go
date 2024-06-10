@@ -103,7 +103,7 @@ func New() (routing.Router, error) {
 			}
 		}
 
-		if m.Flags&syscall.RTF_WASCLONED != 0 {
+		if m.Flags&syscall.RTF_CLONING != 0 {
 			routeInfo.Priority = 99
 		} else {
 			routeInfo.Priority = 100

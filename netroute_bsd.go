@@ -102,6 +102,12 @@ func New() (routing.Router, error) {
 				routeInfo.Gateway = gw
 			}
 		}
+
+		if m.Flags&syscall.RTF_WASCLONED != 0 {
+			routeInfo.Priority = 99
+		} else {
+			routeInfo.Priority = 100
+		}
 		if src, err := toIPAddr(m.Addrs[5]); err == nil {
 			ipn = &net.IPNet{IP: src, Mask: net.CIDRMask(8*len(src), 8*len(src))}
 			routeInfo.Src = ipn

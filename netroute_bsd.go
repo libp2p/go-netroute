@@ -115,7 +115,7 @@ func New() (routing.Router, error) {
 		routeInfo.OutputIface = uint32(m.Index)
 
 		// skipping cloned default routes without gateway to avoid choosing a invalid default route
-		if m.Flags&syscall.RTF_CLONING != 0 && routeInfo.Dst.String() == "0.0.0.0/0" && routeInfo.Gateway == nil {
+		if skipCloned(m.Flags, routeInfo) {
 			log.Tracef("skipping cloned default route without gateway: src: %s, dst: %s, interface idx: %d", routeInfo.Src, routeInfo.Dst, routeInfo.OutputIface)
 			continue
 		}

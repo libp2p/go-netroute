@@ -19,6 +19,7 @@ import (
 	"syscall"
 
 	"github.com/google/gopacket/routing"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/route"
 )
 
@@ -103,11 +104,6 @@ func New() (routing.Router, error) {
 			}
 		}
 
-		if m.Flags&syscall.RTF_CLONING != 0 {
-			routeInfo.Priority = 99
-		} else {
-			routeInfo.Priority = 100
-		}
 		if src, err := toIPAddr(m.Addrs[5]); err == nil {
 			ipn = &net.IPNet{IP: src, Mask: net.CIDRMask(8*len(src), 8*len(src))}
 			routeInfo.Src = ipn
@@ -117,6 +113,12 @@ func New() (routing.Router, error) {
 			}
 		}
 		routeInfo.OutputIface = uint32(m.Index)
+
+		// skipping cloned default routes without gateway to avoid choosing a invalid default route
+		if m.Flags&syscall.RTF_CLONING != 0 && routeInfo.Dst.String() == "0.0.0.0/0" && routeInfo.Gateway == nil {
+			log.Tracef("skipping cloned default route without gateway: src: %s, dst: %s, interface idx: %d", routeInfo.Src, routeInfo.Dst, routeInfo.OutputIface)
+			continue
+		}
 
 		switch m.Addrs[0].(type) {
 		case *route.Inet4Addr:

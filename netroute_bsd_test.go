@@ -3,9 +3,10 @@
 package netroute
 
 import (
-	"golang.org/x/net/route"
 	"net"
 	"testing"
+
+	"golang.org/x/net/route"
 )
 
 func TestToIPAddr(t *testing.T) {

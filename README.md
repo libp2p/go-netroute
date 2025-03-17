@@ -20,7 +20,7 @@ This library is derived from `gopacket` for linux, `x/net/route` for mac, and `i
 ## Install
 
 ```
-go get github.com/libp2p/go-netroute
+go get github.com/abakum/go-netroute
 ```
 
 ## Usage
@@ -29,7 +29,7 @@ To be used for querying the local OS routing table.
 
 ```go
 import (
-    netroute "github.com/libp2p/go-netroute"
+    netroute "github.com/abakum/go-netroute"
 )
 
 func main() {
@@ -45,11 +45,11 @@ func main() {
 ## Documentation
 
 See the [gopacket](https://github.com/google/gopacket/blob/master/routing/) interface for thoughts on design,
-and [godoc](https://godoc.org/github.com/libp2p/go-netroute) for API documentation.
+and [godoc](https://godoc.org/github.com/abakum/go-netroute) for API documentation.
 
 ## Contribute
 
-Contributions welcome. Please check out [the issues](https://github.com/libp2p/go-netroute/issues).
+Contributions welcome. Please check out [the issues](https://github.com/abakum/go-netroute/issues).
 
 Check out our [contributing document](https://github.com/libp2p/community/blob/master/contributing.md) for more information on how we work, and about contributing in general. Please be aware that all interactions related to multiformats are subject to the IPFS [Code of Conduct](https://github.com/ipfs/community/blob/master/code-of-conduct.md).
 

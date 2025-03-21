@@ -47,7 +47,13 @@ func TestRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gw != nil || !src.Equal(localAddr) {
+	// FreeBSD returns lo as IFP of route
+	// root@bsd1:~/src/me/go-netroute # route -nv get 192.168.64.7
+	//  route to: 192.168.64.7
+	//  destination: 192.168.64.7
+	//  fib: 0
+	//  interface: lo0
+	if gw != nil || (!src.Equal(localAddr) && !src.Equal(net.IP([]byte{127, 0, 0, 1}))) {
 		t.Fatalf("Did not expect gateway for %v->%v: %v", src, localAddr, gw)
 	}
 

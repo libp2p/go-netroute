@@ -1,6 +1,8 @@
 module github.com/libp2p/go-netroute
 
-go 1.23
+go 1.23.0
+
+toolchain go1.23.7
 
 require (
 	github.com/google/gopacket v1.1.19

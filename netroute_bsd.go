@@ -44,8 +44,7 @@ func toIPAddr(a route.Addr) net.IP {
 	}
 }
 
-// toRouteAddr converts the net.IP to route.Addr .
-// If ip is not an IPv4 address, toRouteAddr returns nil.
+// toRouteAddr takes a net.IP and returns corresponding route.Addr.
 func toRouteAddr(ip net.IP) route.Addr {
 	if len(ip) == 0 {
 		return nil

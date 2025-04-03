@@ -13,7 +13,6 @@
 package netroute
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -28,11 +27,16 @@ import (
 )
 
 const (
-	RTF_IFSCOPE = 0x1000000
+	RTF_IFSCOPE     = 0x1000000
+	ROUTE_MSGFILTER = 1
 )
 
-type bsdRouter struct{}
+type bsdRouter struct {
+	pid int
+}
 
+// toIPAddr converts a route.Addr to a net.IP.
+// Returns nil if the address type is not recognized.
 func toIPAddr(a route.Addr) net.IP {
 	switch t := a.(type) {
 	case *route.Inet4Addr:
@@ -44,7 +48,9 @@ func toIPAddr(a route.Addr) net.IP {
 	}
 }
 
-// toRouteAddr takes a net.IP and returns corresponding route.Addr.
+// toRouteAddr takes a net.IP and returns the corresponding route.Addr.
+// Returns nil if the IP is empty or has an invalid length.
+// IPv4 addresses are converted to route.Inet4Addr and IPv6 to route.Inet6Addr.
 func toRouteAddr(ip net.IP) route.Addr {
 	if len(ip) == 0 {
 		return nil
@@ -59,7 +65,8 @@ func toRouteAddr(ip net.IP) route.Addr {
 	return &route.Inet6Addr{IP: [16]byte(ip)}
 }
 
-// ipToIfIndex takes an IP and returns index of the interface with the given IP assigned if any
+// ipToIfIndex takes an IP and returns the index of the interface with the given IP assigned.
+// Returns an error if no interface is found with the specified IP address.
 func ipToIfIndex(ip net.IP) (int, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -83,7 +90,8 @@ func ipToIfIndex(ip net.IP) (int, error) {
 	return -1, fmt.Errorf("no interface found for IP: %s", ip)
 }
 
-// macToIfIndex takes a MAC address and returns index of interface with matching address
+// macToIfIndex takes a MAC address and returns the index of the interface with the matching hardware address.
+// Returns an error if no interface is found with the specified MAC address.
 func macToIfIndex(hwAddr net.HardwareAddr) (int, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -97,6 +105,9 @@ func macToIfIndex(hwAddr net.HardwareAddr) (int, error) {
 	return -1, fmt.Errorf("no interface found for MAC: %s", hwAddr.String())
 }
 
+// getIfIndex determines the interface index based on the provided MAC address and/or IP address.
+// If both are provided, it ensures they resolve to the same interface.
+// Returns -1 if neither MAC nor IP is provided, or an error if they resolve to different interfaces.
 func getIfIndex(MACAddr net.HardwareAddr, ip net.IP) (int, error) {
 	ipIndex := -1
 	macIndex := -1
@@ -121,7 +132,7 @@ func getIfIndex(MACAddr net.HardwareAddr, ip net.IP) (int, error) {
 
 	switch {
 	case (ipIndex >= 0 && macIndex >= 0) && (macIndex != ipIndex):
-		return -1, fmt.Errorf("given MAC address and source IP do not resolve to same Interface")
+		return -1, fmt.Errorf("given MAC address and source IP resolve to different interfaces")
 	case (ipIndex >= 0 && macIndex >= 0) && (macIndex == ipIndex):
 		return ipIndex, nil
 	case ipIndex >= 0:
@@ -129,21 +140,19 @@ func getIfIndex(MACAddr net.HardwareAddr, ip net.IP) (int, error) {
 	case macIndex >= 0:
 		return macIndex, nil
 	default:
-		return -1, fmt.Errorf("no index found for given ip and/or mac")
+		return -1, fmt.Errorf("no index found for given ip and/or MAC address")
 	}
 }
 
-func (r *bsdRouter) Route(dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
-	return r.RouteWithSrc(nil, nil, dst)
-}
-
-func (r *bsdRouter) RouteWithSrc(MACAddr net.HardwareAddr, src, dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
+// composeRouteMsg creates a RTM_GET RouteMessage for querying the routing table.
+// It takes the process ID, optional MAC address, optional source IP, and destination IP.
+// The function determines the appropriate interface index if MAC or source IP is provided.
+func composeRouteMsg(pid int, MACAddr net.HardwareAddr, src, dst net.IP) (*route.RouteMessage, error) {
 	dstAddr := toRouteAddr(dst)
 	if dstAddr == nil {
-		return nil, nil, nil, fmt.Errorf("failed to parse dst: %#v", dst)
+		return nil, fmt.Errorf("failed to parse dst: %#v", dst)
 	}
 
-	pid := os.Getpid()
 	seq := rand.Int()
 	msg := &route.RouteMessage{
 		Version: syscall.RTM_VERSION,
@@ -158,94 +167,219 @@ func (r *bsdRouter) RouteWithSrc(MACAddr net.HardwareAddr, src, dst net.IP) (ifa
 			&route.LinkAddr{},
 		},
 	}
+
 	ifIndex, err := getIfIndex(MACAddr, src)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to determine ifIndex: %s", err)
+		return nil, fmt.Errorf("failed to determine ifIndex: %s", err)
 	}
+
 	if ifIndex >= 0 {
 		msg.Flags = RTF_IFSCOPE
 		msg.Index = ifIndex
 	}
 
-	var reply *route.RouteMessage
-	if reply, err = getRouteMsgAnswer(msg); err != nil {
-		return
-	}
-	if iface, err = net.InterfaceByIndex(reply.Index); err != nil {
-		return
-	}
-	preferredSrc = toIPAddr(reply.Addrs[5])
-	if dst.String() == preferredSrc.String() {
-		return
-	}
-	gateway = toIPAddr(reply.Addrs[1])
-	return
+	return msg, nil
 }
 
-// getRouteMsgAnswer takes an RTM_GET RouteMessage and returns an answer (RouteMessage)
-func getRouteMsgAnswer(m *route.RouteMessage) (rm *route.RouteMessage, err error) {
-	msgTimeout := 10 * time.Second
-	if m.Type != syscall.RTM_GET {
+// getRouteMsgReply takes an RTM_GET RouteMessage and returns reply (RouteMessage)
+func getRouteMsgReply(msg *route.RouteMessage) (*route.RouteMessage, error) {
+	if msg.Type != syscall.RTM_GET {
 		return nil, errors.New("message type is not RTM_GET")
 	}
-	so, err := unix.Socket(unix.AF_ROUTE, unix.SOCK_RAW, unix.AF_UNSPEC)
+
+	fd, err := getRouteFD()
 	if err != nil {
 		return nil, err
 	}
-	defer unix.Close(so)
+	defer unix.Close(fd)
 
-	wb, err := m.Marshal()
+	err = writeMsg(fd, msg)
 	if err != nil {
 		return nil, err
 	}
-	if _, err = unix.Write(so, wb); err != nil {
-		// will return unix.ESRCH when route not found, i.e. there are no routing tables
-		return nil, err
+
+	// Read the response message
+	return readMsg(msg.ID, msg.Seq, fd)
+}
+
+// getRouteFD opens a routing socket.
+// Returns the file descriptor for the socket or an error if the socket cannot be created.
+func getRouteFD() (int, error) {
+	fd, err := unix.Socket(unix.AF_ROUTE, unix.SOCK_RAW, unix.AF_UNSPEC)
+	if err != nil {
+		scope := "route socket - open"
+		return -1, annotateUnixError(err, scope)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), msgTimeout)
-	responseErr := make(chan error, 1)
-	var ok bool
-	var rb [2 << 10]byte
+	return fd, nil
+}
+
+// writeMsg marshals and writes a RouteMessage to the specified file descriptor.
+// Returns an error if marshaling fails or if the write operation fails.
+func writeMsg(fd int, msg *route.RouteMessage) error {
+	buf, err := msg.Marshal()
+	if err != nil {
+		return fmt.Errorf("invalid route message given: %s", err)
+	}
+
+	if _, err = unix.Write(fd, buf); err != nil {
+		scope := "route socket - write"
+		return annotateUnixError(err, scope)
+	}
+
+	return nil
+}
+
+// readMsg reads a response from the routing socket and returns the matching RouteMessage.
+// It spawns a goroutine to read from the socket and filters messages based on the provided ID and sequence number.
+// The function includes a 10-second timeout to prevent indefinite blocking.
+func readMsg(id uintptr, seq, fd int) (*route.RouteMessage, error) {
+	type readResult struct {
+		msg *route.RouteMessage
+		err error
+	}
+
+	// Create a channel to receive the result
+	resultCh := make(chan readResult, 1)
+
 	go func() {
-		defer cancel()
+		var rb [2 << 10]byte
 		for {
-			if err := ctx.Err(); err != nil { // timed out
-				responseErr <- ctx.Err()
-				return
-			}
-			n, err := unix.Read(so, rb[:])
+			n, err := unix.Read(fd, rb[:])
 			if err != nil {
-				responseErr <- fmt.Errorf("failed to read from routing socket: %s", err)
+				scope := "route socket - read"
+				resultCh <- readResult{
+					nil,
+					annotateUnixError(err, scope),
+				}
 				return
 			}
-			// Parse the response messages
-			rms, err := route.ParseRIB(route.RIBTypeRoute, rb[:n])
+
+			// Parse response messages
+			msgs, err := route.ParseRIB(route.RIBTypeRoute, rb[:n])
 			if err != nil {
-				responseErr <- fmt.Errorf("failed to parsed messages: %s", err)
+				resultCh <- readResult{
+					nil,
+					fmt.Errorf("failed to parse messages: %s", err),
+				}
 				return
 			}
-			if len(rms) != 1 {
-				responseErr <- fmt.Errorf("unexpected number of messages received: %d", len(rms))
+
+			if len(msgs) != 1 {
+				resultCh <- readResult{
+					nil,
+					fmt.Errorf("unexpected number of messages received: %d", len(msgs)),
+				}
 				return
 			}
-			rm, ok = rms[0].(*route.RouteMessage)
+
+			msg, ok := msgs[0].(*route.RouteMessage)
 			// confirm it is a reply to our query
-			if !ok || (m.ID != rm.ID && m.Seq != rm.Seq && rm.Type != unix.RTM_GET) {
-				rm = nil
+			if !ok || (id != msg.ID && seq != msg.Seq) {
 				continue
 			}
-			responseErr <- nil
+
+			resultCh <- readResult{
+				msg,
+				nil,
+			}
+
 			return
 		}
 	}()
 
-	err = <-responseErr
+	select {
+	case result := <-resultCh:
+		return result.msg, result.err
+	case <-time.After(10 * time.Second):
+		return nil, fmt.Errorf("route socket - read: timedout")
+	}
+}
+
+func annotateUnixError(err error, scope string) error {
+	var annotatedErr error
+	switch err {
+	case nil:
+	case unix.ESRCH: // route known to not exist
+		annotatedErr = errors.New("route not found")
+	// socket errors
+	case unix.EACCES:
+		annotatedErr = errors.New("permission denied")
+	case unix.EMFILE:
+		annotatedErr = errors.New("file system table full")
+	case unix.ENOBUFS:
+		annotatedErr = errors.New("insufficient buffer space")
+	case unix.EPERM:
+		annotatedErr = errors.New("insufficient privileges")
+	case unix.EPROTOTYPE:
+		annotatedErr = errors.New("socket type not supported")
+	// read errors
+	case unix.EBADF:
+		annotatedErr = errors.New("invalid socket")
+	case unix.ECONNRESET:
+		annotatedErr = errors.New("socket closed")
+	case unix.EFAULT:
+		annotatedErr = errors.New("invalid buffer")
+	case unix.EIO:
+		annotatedErr = errors.New("I/O error")
+	case unix.EBUSY:
+		annotatedErr = errors.New("failed to read form file descriptor")
+	case unix.EINVAL:
+		annotatedErr = errors.New("invalid file descriptor")
+	case unix.EAGAIN:
+		annotatedErr = errors.New("no data available, try again later")
+	default: // unexpected system error; fatal
+		annotatedErr = err
+	}
+
+	if scope != "" {
+		return fmt.Errorf("%s: %s", scope, annotatedErr)
+	}
+
+	return annotatedErr
+}
+
+// Route implements the routing.Router interface to find the best route to the destination IP.
+// Returns the outgoing interface, gateway IP, preferred source IP, and any error encountered.
+func (r *bsdRouter) Route(dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
+	return r.RouteWithSrc(nil, nil, dst)
+}
+
+// RouteWithSrc extends the Route method to allow specifying a source MAC address and IP.
+// This enables more precise routing decisions when multiple interfaces are available.
+// Returns the outgoing interface, gateway IP, preferred source IP, and any error encountered.
+func (r *bsdRouter) RouteWithSrc(MACAddr net.HardwareAddr, src, dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
+	msg, err := composeRouteMsg(r.pid, MACAddr, src, dst)
+	if err != nil {
+		return
+	}
+
+	var reply *route.RouteMessage
+	if reply, err = getRouteMsgReply(msg); err != nil {
+		return
+	}
+
+	if iface, err = net.InterfaceByIndex(reply.Index); err != nil {
+		return
+	}
+
+	preferredSrc = toIPAddr(reply.Addrs[5])
+
+	isGatewayRequired := dst.String() != preferredSrc.String()
+	if !isGatewayRequired {
+		return
+	}
+
+	gateway = toIPAddr(reply.Addrs[1])
+
 	return
 }
 
-// New return a stateless routing router
+// New returns a new instance of a BSD-specific routing.Router implementation.
+// The router is stateless and uses the routing tables of the host system.
 func New() (routing.Router, error) {
-	rtr := &bsdRouter{}
-	return rtr, nil
+	r := &bsdRouter{
+		os.Getpid(),
+	}
+	return r, nil
 }

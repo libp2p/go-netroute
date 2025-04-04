@@ -328,7 +328,7 @@ func annotateUnixError(err error, scope string) error {
 	case unix.EIO:
 		annotatedErr = errors.New("I/O error")
 	case unix.EBUSY:
-		annotatedErr = errors.New("failed to read form file descriptor")
+		annotatedErr = errors.New("failed to read from file descriptor")
 	case unix.EINVAL:
 		annotatedErr = errors.New("invalid file descriptor")
 	case unix.EAGAIN:

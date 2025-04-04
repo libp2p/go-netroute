@@ -182,8 +182,7 @@ func composeRouteMsg(id uintptr, seq int, MACAddr net.HardwareAddr, src, dst net
 }
 
 func (r *bsdRouter) getSeq() int {
-	r.seq.Add(1)
-	return int(r.seq.Load())
+	return int(r.seq.Add(1))
 }
 
 // getRouteMsgReply takes an RTM_GET RouteMessage and returns reply (RouteMessage)

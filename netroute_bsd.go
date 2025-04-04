@@ -15,9 +15,9 @@ package netroute
 import (
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"net"
 	"os"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -32,7 +32,8 @@ const (
 )
 
 type bsdRouter struct {
-	pid int
+	id  uintptr
+	seq atomic.Uint32
 }
 
 // toIPAddr converts a route.Addr to a net.IP.
@@ -147,17 +148,16 @@ func getIfIndex(MACAddr net.HardwareAddr, ip net.IP) (int, error) {
 // composeRouteMsg creates a RTM_GET RouteMessage for querying the routing table.
 // It takes the process ID, optional MAC address, optional source IP, and destination IP.
 // The function determines the appropriate interface index if MAC or source IP is provided.
-func composeRouteMsg(pid int, MACAddr net.HardwareAddr, src, dst net.IP) (*route.RouteMessage, error) {
+func composeRouteMsg(id uintptr, seq int, MACAddr net.HardwareAddr, src, dst net.IP) (*route.RouteMessage, error) {
 	dstAddr := toRouteAddr(dst)
 	if dstAddr == nil {
 		return nil, fmt.Errorf("failed to parse dst: %#v", dst)
 	}
 
-	seq := rand.Int()
 	msg := &route.RouteMessage{
 		Version: syscall.RTM_VERSION,
 		Type:    unix.RTM_GET,
-		ID:      uintptr(pid),
+		ID:      id,
 		Seq:     seq,
 		Addrs: []route.Addr{
 			dstAddr,
@@ -179,6 +179,11 @@ func composeRouteMsg(pid int, MACAddr net.HardwareAddr, src, dst net.IP) (*route
 	}
 
 	return msg, nil
+}
+
+func (r *bsdRouter) getSeq() int {
+	r.seq.Add(1)
+	return int(r.seq.Load())
 }
 
 // getRouteMsgReply takes an RTM_GET RouteMessage and returns reply (RouteMessage)
@@ -349,7 +354,7 @@ func (r *bsdRouter) Route(dst net.IP) (iface *net.Interface, gateway, preferredS
 // This enables more precise routing decisions when multiple interfaces are available.
 // Returns the outgoing interface, gateway IP, preferred source IP, and any error encountered.
 func (r *bsdRouter) RouteWithSrc(MACAddr net.HardwareAddr, src, dst net.IP) (iface *net.Interface, gateway, preferredSrc net.IP, err error) {
-	msg, err := composeRouteMsg(r.pid, MACAddr, src, dst)
+	msg, err := composeRouteMsg(r.id, r.getSeq(), MACAddr, src, dst)
 	if err != nil {
 		return
 	}
@@ -378,8 +383,8 @@ func (r *bsdRouter) RouteWithSrc(MACAddr net.HardwareAddr, src, dst net.IP) (ifa
 // New returns a new instance of a BSD-specific routing.Router implementation.
 // The router is stateless and uses the routing tables of the host system.
 func New() (routing.Router, error) {
-	r := &bsdRouter{
-		os.Getpid(),
-	}
+	r := &bsdRouter{}
+	r.id = uintptr(os.Getpid())
+
 	return r, nil
 }

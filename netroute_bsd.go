@@ -253,7 +253,6 @@ func readMsg(id uintptr, seq, fd int) (*route.RouteMessage, error) {
 			if err != nil {
 				scope := "route socket - read"
 				resultCh <- readResult{
-					msg: nil,
 					err: annotateUnixError(err, scope),
 				}
 				return
@@ -263,7 +262,6 @@ func readMsg(id uintptr, seq, fd int) (*route.RouteMessage, error) {
 			msgs, err := route.ParseRIB(route.RIBTypeRoute, rb[:n])
 			if err != nil {
 				resultCh <- readResult{
-					msg: nil,
 					err: fmt.Errorf("failed to parse messages: %w", err),
 				}
 				return
@@ -271,7 +269,6 @@ func readMsg(id uintptr, seq, fd int) (*route.RouteMessage, error) {
 
 			if len(msgs) != 1 {
 				resultCh <- readResult{
-					msg: nil,
 					err: fmt.Errorf("unexpected number of messages received: %d", len(msgs)),
 				}
 				return
@@ -285,7 +282,6 @@ func readMsg(id uintptr, seq, fd int) (*route.RouteMessage, error) {
 
 			resultCh <- readResult{
 				msg: msg,
-				err: nil,
 			}
 
 			return

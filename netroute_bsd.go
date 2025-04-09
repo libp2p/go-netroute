@@ -71,7 +71,7 @@ func toRouteAddr(ip net.IP) route.Addr {
 func ipToIfIndex(ip net.IP) (int, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return -1, fmt.Errorf("failed to get interfaces: %s", err)
+		return -1, fmt.Errorf("failed to get interfaces: %w", err)
 	}
 	for _, iface := range ifaces {
 		addrs, err := iface.Addrs()
@@ -96,7 +96,7 @@ func ipToIfIndex(ip net.IP) (int, error) {
 func macToIfIndex(hwAddr net.HardwareAddr) (int, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return -1, fmt.Errorf("failed to get interfaces: %s", err)
+		return -1, fmt.Errorf("failed to get interfaces: %w", err)
 	}
 	for _, iface := range ifaces {
 		if hwAddr.String() == iface.HardwareAddr.String() {
@@ -170,7 +170,7 @@ func composeRouteMsg(id uintptr, seq int, MACAddr net.HardwareAddr, src, dst net
 
 	ifIndex, err := getIfIndex(MACAddr, src)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine ifIndex: %s", err)
+		return nil, err
 	}
 
 	if ifIndex >= 0 {
@@ -223,7 +223,7 @@ func getRouteFD() (int, error) {
 func writeMsg(fd int, msg *route.RouteMessage) error {
 	buf, err := msg.Marshal()
 	if err != nil {
-		return fmt.Errorf("invalid route message given: %s", err)
+		return fmt.Errorf("invalid route message given: %w", err)
 	}
 
 	if _, err = unix.Write(fd, buf); err != nil {
@@ -264,7 +264,7 @@ func readMsg(id uintptr, seq, fd int) (*route.RouteMessage, error) {
 			if err != nil {
 				resultCh <- readResult{
 					msg: nil,
-					err: fmt.Errorf("failed to parse messages: %s", err),
+					err: fmt.Errorf("failed to parse messages: %w", err),
 				}
 				return
 			}
@@ -301,46 +301,45 @@ func readMsg(id uintptr, seq, fd int) (*route.RouteMessage, error) {
 }
 
 func annotateUnixError(err error, scope string) error {
-	var annotatedErr error
+	var msg string
 	switch err {
 	case nil:
-	case unix.ESRCH: // route known to not exist
-		annotatedErr = errors.New("route not found")
+		return nil
+	case unix.ESRCH:
+		msg = "route not found"
 	// socket errors
 	case unix.EACCES:
-		annotatedErr = errors.New("permission denied")
+		msg = "permission denied"
 	case unix.EMFILE:
-		annotatedErr = errors.New("file system table full")
+		msg = "file system table full"
 	case unix.ENOBUFS:
-		annotatedErr = errors.New("insufficient buffer space")
+		msg = "insufficient buffer space"
 	case unix.EPERM:
-		annotatedErr = errors.New("insufficient privileges")
+		msg = "insufficient privileges"
 	case unix.EPROTOTYPE:
-		annotatedErr = errors.New("socket type not supported")
+		msg = "socket type not supported"
 	// read errors
 	case unix.EBADF:
-		annotatedErr = errors.New("invalid socket")
+		msg = "invalid socket"
 	case unix.ECONNRESET:
-		annotatedErr = errors.New("socket closed")
+		msg = "socket closed"
 	case unix.EFAULT:
-		annotatedErr = errors.New("invalid buffer")
+		msg = "invalid buffer"
 	case unix.EIO:
-		annotatedErr = errors.New("I/O error")
+		msg = "I/O error"
 	case unix.EBUSY:
-		annotatedErr = errors.New("failed to read from file descriptor")
+		msg = "failed to read from file descriptor"
 	case unix.EINVAL:
-		annotatedErr = errors.New("invalid file descriptor")
+		msg = "invalid file descriptor"
 	case unix.EAGAIN:
-		annotatedErr = errors.New("no data available, try again later")
+		msg = "no data available, try again later"
 	default: // unexpected system error; fatal
-		annotatedErr = err
+		msg = "unexpected error"
 	}
-
 	if scope != "" {
-		return fmt.Errorf("%s: %s", scope, annotatedErr)
+		msg = scope + ": " + msg
 	}
-
-	return annotatedErr
+	return fmt.Errorf("%s: %w", msg, err)
 }
 
 // Route implements the routing.Router interface to find the best route to the destination IP.

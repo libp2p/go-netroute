@@ -6,6 +6,15 @@ import (
 	"testing"
 )
 
+func BenchmarkNew(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, err := New()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestRoute(t *testing.T) {
 	r, err := New()
 	if err != nil {

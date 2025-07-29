@@ -5,6 +5,7 @@ go 1.23.0
 require (
 	github.com/google/gopacket v1.1.19
 	github.com/stretchr/testify v1.10.0
+	github.com/wjordan/netinterfaces v0.1.0
 	golang.org/x/net v0.37.0
 	golang.org/x/sys v0.31.0
 )

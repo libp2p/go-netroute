@@ -18,6 +18,7 @@ import (
 	"unsafe"
 
 	"github.com/google/gopacket/routing"
+	. "github.com/wjordan/netinterfaces"
 )
 
 func New() (routing.Router, error) {
@@ -87,12 +88,12 @@ loop:
 	}
 	sort.Sort(rtr.v4)
 	sort.Sort(rtr.v6)
-	ifaces, err := net.Interfaces()
+	ifaces, err := NetInterfaces()
 	if err != nil {
 		return nil, err
 	}
 	for _, iface := range ifaces {
-		rtr.ifaces[iface.Index] = iface
+		rtr.ifaces[iface.Index] = iface.Interface
 		var addrs ipAddrs
 		ifaceAddrs, err := iface.Addrs()
 		if err != nil {

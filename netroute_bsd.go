@@ -21,7 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/gopacket/routing"
 	"golang.org/x/net/route"
 	"golang.org/x/sys/unix"
 )
@@ -376,7 +375,7 @@ func (r *bsdRouter) RouteWithSrc(MACAddr net.HardwareAddr, src, dst net.IP) (ifa
 
 // New returns a new instance of a BSD-specific routing.Router implementation.
 // The router is stateless and uses the routing tables of the host system.
-func New() (routing.Router, error) {
+func New() (Router, error) {
 	r := &bsdRouter{}
 	r.id = uintptr(os.Getpid())
 

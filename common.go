@@ -18,6 +18,8 @@ import (
 	"strings"
 )
 
+//lint:file-ignore U1000 structs here used by different build tags
+
 // rtInfo contains information on a single route.
 type rtInfo struct {
 	Src, Dst         *net.IPNet

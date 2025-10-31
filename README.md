@@ -29,16 +29,19 @@ To be used for querying the local OS routing table.
 
 ```go
 import (
-    netroute "github.com/libp2p/go-netroute"
+	"fmt"
+	"net"
+
+	netroute "github.com/libp2p/go-netroute"
 )
 
 func main() {
-    r, err := netroute.New()
-    if err != nil {
-        panic(err)
-    }
-    iface, gw, src, err := r.Route(net.IPv4(127, 0, 0, 1))
-    fmt.Printf("%v, %v, %v, %v\n", iface, gw, src, err)
+	r, err := netroute.New()
+	if err != nil {
+		panic(err)
+	}
+	iface, gw, src, err := r.Route(net.IPv4(127, 0, 0, 1))
+	fmt.Printf("%v, %v, %v, %v\n", iface, gw, src, err)
 }
 ```
 

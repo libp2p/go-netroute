@@ -1,0 +1,7 @@
+- general cleanup; needs full pass
+- even though illumos 386 doesn't exist anymore, there shouldn't be anything keeping us on amd64 either; check for areas where machine matters, and remove them (with the build constraint `_illumos_amd64`->`_illumos`)
+- figure out what's going on with the interface flags
+    - need help with this
+- remove test cmd
+- write a real commit message
+- make sure to tag people who know more about the Go runtime about areas where reflect and unsafe are used; we're trying to be efficient but within reason - portability and correctness are more important
